@@ -4,11 +4,27 @@ if (isset($_GET['ajax'])) {
     header('Content-Type: application/json; charset=utf-8');
     header('Access-Control-Allow-Origin: *');
 
+    // Handle preflight
+    if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+        header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+        header('Access-Control-Allow-Headers: Content-Type');
+        http_response_code(204);
+        exit;
+    }
+
     $serverMap = [
         'ace'   => 'apiace.php',
         'sd'    => 'apisd.php',
         'videy' => 'apivid.php',
         'zig'   => 'apizig.php',
+    ];
+
+    // URL map: path absolut ke masing-masing API di Vercel
+    $apiUrlMap = [
+        'ace'   => '/api/apiace.php',
+        'sd'    => '/api/apisd.php',
+        'videy' => '/api/apivid.php',
+        'zig'   => '/api/apizig.php',
     ];
 
     $server  = $_GET['server'] ?? '';
@@ -17,49 +33,103 @@ if (isset($_GET['ajax'])) {
     $itemUrl = trim($_POST['url'] ?? '');
 
     if (!isset($serverMap[$server])) {
-        echo json_encode(['success'=>false,'error'=>'Unknown server: '.$server]); exit;
-    }
-    $apiFile = __DIR__.'/'.$serverMap[$server];
-    if (!file_exists($apiFile)) {
-        echo json_encode(['success'=>false,'error'=>'File tidak ditemukan: '.$serverMap[$server]]); exit;
+        echo json_encode(['success' => false, 'error' => 'Unknown server: ' . $server]);
+        exit;
     }
 
-    $scheme  = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS']!=='off') ? 'https' : 'http';
-    $baseUrl = $scheme.'://'.$_SERVER['HTTP_HOST'].rtrim(dirname($_SERVER['REQUEST_URI']),'/').'/'.$serverMap[$server];
+    // Cek file exist (opsional, __DIR__ sama folder di Vercel)
+    $apiFile = __DIR__ . '/' . $serverMap[$server];
+    if (!file_exists($apiFile)) {
+        echo json_encode(['success' => false, 'error' => 'File tidak ditemukan: ' . $serverMap[$server]]);
+        exit;
+    }
+
+    // Bangun baseUrl dengan path absolut — tidak pakai dirname(REQUEST_URI)
+    $scheme  = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host    = $_SERVER['HTTP_HOST'];
+    $baseUrl = $scheme . '://' . $host . $apiUrlMap[$server];
 
     if ($mode === 'url') {
-        if (empty($itemUrl)) { echo json_encode(['success'=>false,'error'=>'URL kosong']); exit; }
-        $ch = curl_init($baseUrl.'?url='.urlencode($itemUrl));
-        curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>300,CURLOPT_CONNECTTIMEOUT=>20,CURLOPT_SSL_VERIFYPEER=>false,CURLOPT_FOLLOWLOCATION=>true]);
-        $body = curl_exec($ch); $cerr = curl_error($ch); curl_close($ch);
-        if ($cerr) { echo json_encode(['success'=>false,'error'=>'cURL: '.$cerr]); exit; }
+        if (empty($itemUrl)) {
+            echo json_encode(['success' => false, 'error' => 'URL kosong']);
+            exit;
+        }
+        $ch = curl_init($baseUrl . '?url=' . urlencode($itemUrl));
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 300,
+            CURLOPT_CONNECTTIMEOUT => 20,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_FOLLOWLOCATION => true,
+        ]);
+        $body = curl_exec($ch);
+        $cerr = curl_error($ch);
+        curl_close($ch);
+        if ($cerr) {
+            echo json_encode(['success' => false, 'error' => 'cURL: ' . $cerr]);
+            exit;
+        }
         $json = json_decode($body, true);
-        if ($json === null) { echo json_encode(['success'=>false,'error'=>'Response bukan JSON','raw'=>substr($body,0,400)]); exit; }
-        echo json_encode(normalizeResult($json,$server,$index)); exit;
+        if ($json === null) {
+            echo json_encode(['success' => false, 'error' => 'Response bukan JSON', 'raw' => substr($body, 0, 400)]);
+            exit;
+        }
+        echo json_encode(normalizeResult($json, $server, $index));
+        exit;
     }
 
     if ($mode === 'file') {
         if (!isset($_FILES['file']) || $_FILES['file']['error'] === UPLOAD_ERR_NO_FILE) {
-            echo json_encode(['success'=>false,'error'=>'Tidak ada file']); exit;
+            echo json_encode(['success' => false, 'error' => 'Tidak ada file']);
+            exit;
         }
-        $cfile = new CURLFile($_FILES['file']['tmp_name'], $_FILES['file']['type'], $_FILES['file']['name']);
+        $cfile = new CURLFile(
+            $_FILES['file']['tmp_name'],
+            $_FILES['file']['type'],
+            $_FILES['file']['name']
+        );
         $ch = curl_init($baseUrl);
-        curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>['file'=>$cfile],CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>300,CURLOPT_CONNECTTIMEOUT=>20,CURLOPT_SSL_VERIFYPEER=>false,CURLOPT_FOLLOWLOCATION=>true]);
-        $body = curl_exec($ch); $cerr = curl_error($ch); curl_close($ch);
-        if ($cerr) { echo json_encode(['success'=>false,'error'=>'cURL: '.$cerr]); exit; }
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => ['file' => $cfile],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 300,
+            CURLOPT_CONNECTTIMEOUT => 20,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_FOLLOWLOCATION => true,
+        ]);
+        $body = curl_exec($ch);
+        $cerr = curl_error($ch);
+        curl_close($ch);
+        if ($cerr) {
+            echo json_encode(['success' => false, 'error' => 'cURL: ' . $cerr]);
+            exit;
+        }
         $json = json_decode($body, true);
-        if ($json === null) { echo json_encode(['success'=>false,'error'=>'Response bukan JSON','raw'=>substr($body,0,400)]); exit; }
-        echo json_encode(normalizeResult($json,$server,$index)); exit;
+        if ($json === null) {
+            echo json_encode(['success' => false, 'error' => 'Response bukan JSON', 'raw' => substr($body, 0, 400)]);
+            exit;
+        }
+        echo json_encode(normalizeResult($json, $server, $index));
+        exit;
     }
 
-    echo json_encode(['success'=>false,'error'=>'Invalid mode']); exit;
+    echo json_encode(['success' => false, 'error' => 'Invalid mode']);
+    exit;
 }
 
 function normalizeResult(array $j, string $srv, int $idx): array {
     $ok  = $j['success'] ?? false;
     $res = $j['result']  ?? [];
-    if (!$ok || empty($res)) return ['success'=>false,'server'=>$srv,'index'=>$idx,'error'=>$j['error']??'Upload gagal'];
-    $urls=[];
+    if (!$ok || empty($res)) {
+        return [
+            'success' => false,
+            'server'  => $srv,
+            'index'   => $idx,
+            'error'   => $j['error'] ?? 'Upload gagal',
+        ];
+    }
+    $urls = [];
     if (!empty($res['view_url']))       $urls['view']   = $res['view_url'];
     if (!empty($res['direct_url']))     $urls['direct'] = $res['direct_url'];
     if (!empty($res['cdn_url']))        $urls['cdn']    = $res['cdn_url'];
@@ -68,11 +138,16 @@ function normalizeResult(array $j, string $srv, int $idx): array {
     if (!empty($res['urls']['stream'])) $urls['stream'] = $res['urls']['stream'];
     if (!empty($res['urls']['file']))   $urls['file']   = $res['urls']['file'];
     if (!empty($res['urls']['embed']))  $urls['embed']  = $res['urls']['embed'];
-    $primary = $urls['share']??$urls['view']??$urls['watch']??$urls['cdn']??$urls['direct']??$urls['stream']??$urls['file']??null;
+    $primary = $urls['share']  ?? $urls['view']   ?? $urls['watch']  ??
+               $urls['cdn']    ?? $urls['direct']  ?? $urls['stream'] ??
+               $urls['file']   ?? null;
     return [
-        'success'   => true, 'server' => $srv, 'index' => $idx,
-        'primary'   => $primary, 'urls'  => $urls,
-        'file_name' => $res['file_name'] ?? ($res['original_name'] ?? ($res['title'] ?? '')),
+        'success'   => true,
+        'server'    => $srv,
+        'index'     => $idx,
+        'primary'   => $primary,
+        'urls'      => $urls,
+        'file_name' => $res['file_name']    ?? ($res['original_name'] ?? ($res['title'] ?? '')),
         'size_mb'   => $res['file_size_mb'] ?? ($res['size_mb'] ?? 0),
     ];
 }
@@ -91,34 +166,22 @@ function normalizeResult(array $j, string $srv, int $idx): array {
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;min-height:100vh}
 a{color:var(--acc);text-decoration:none}a:hover{text-decoration:underline}
-
-/* HEADER */
 header{background:linear-gradient(135deg,#1a1d27,#151824);border-bottom:1px solid var(--bdr);padding:14px 24px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 header h1{font-size:18px;font-weight:700}header p{font-size:12px;color:var(--mut)}
 .badges{margin-left:auto;display:flex;gap:5px;flex-wrap:wrap}
 .badge{font-size:11px;padding:2px 9px;border-radius:999px;font-weight:700;color:#fff}
 .b1{background:#5b7cff}.b2{background:#7c3aed}.b3{background:#059669}.b4{background:#d97706}
-
-/* LAYOUT */
 .wrap{max-width:1060px;margin:0 auto;padding:20px 14px}
-
-/* TABS */
 .tabs{display:flex;gap:4px;background:var(--sur);padding:4px;border-radius:var(--r);border:1px solid var(--bdr);width:fit-content;margin-bottom:18px}
 .tab-btn{padding:8px 22px;border:none;background:transparent;color:var(--mut);border-radius:7px;cursor:pointer;font-size:14px;font-weight:500;transition:.15s}
 .tab-btn.active{background:var(--acc);color:#fff}
 .tab-btn:hover:not(.active){color:var(--txt);background:var(--card)}
-
-/* PANEL */
 .panel{background:var(--sur);border:1px solid var(--bdr);border-radius:var(--r);padding:18px;margin-bottom:14px}
 .ptitle{font-size:15px;font-weight:600;margin-bottom:12px}
-
-/* DROPZONE */
 .dzone{border:2px dashed var(--bdr);border-radius:var(--r);padding:28px 16px;text-align:center;cursor:pointer;transition:.2s;user-select:none}
 .dzone:hover,.dzone.over{border-color:var(--acc);background:rgba(91,124,255,.07)}
 .dzone .ico{font-size:32px;margin-bottom:8px}
 .dzone p{color:var(--mut);font-size:13px}.dzone strong{color:var(--txt)}
-
-/* ITEM LIST */
 .ilist{margin-top:10px;display:flex;flex-direction:column;gap:6px}
 .irow{background:var(--card);border:1px solid var(--bdr);border-radius:8px;padding:8px 11px;display:flex;align-items:center;gap:8px}
 .irow .ico{font-size:18px;flex-shrink:0}
@@ -127,17 +190,11 @@ header h1{font-size:18px;font-weight:700}header p{font-size:12px;color:var(--mut
 .irow .mt{font-size:11px;color:var(--mut);margin-top:1px}
 .rmbtn{background:transparent;border:none;color:var(--red);cursor:pointer;font-size:15px;padding:2px 7px;border-radius:4px;flex-shrink:0;line-height:1}
 .rmbtn:hover{background:rgba(239,68,68,.12)}
-
-/* TEXTAREA */
 .url-ta{width:100%;background:var(--card);border:1px solid var(--bdr);border-radius:8px;padding:10px 12px;color:var(--txt);font-size:13px;resize:vertical;min-height:90px;font-family:inherit}
 .url-ta:focus{outline:none;border-color:var(--acc)}
 .url-ta::placeholder{color:var(--mut)}
-
-/* ACTION BAR */
 .actbar{display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap}
 .bcnt{font-size:12px;color:var(--mut);background:var(--card);border:1px solid var(--bdr);padding:4px 10px;border-radius:6px}
-
-/* BUTTONS */
 .btn{display:inline-flex;align-items:center;gap:5px;padding:9px 18px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:.15s;white-space:nowrap;line-height:1}
 .btn-up{background:var(--acc);color:#fff}
 .btn-up:hover:not(:disabled){background:#4a6bef;transform:translateY(-1px);box-shadow:0 3px 10px rgba(91,124,255,.35)}
@@ -147,21 +204,14 @@ header h1{font-size:18px;font-weight:700}header p{font-size:12px;color:var(--mut
 .btn-add{background:var(--acc2);color:#fff}
 .btn-add:hover{background:#6d28d9}
 .btn-sm{padding:6px 13px;font-size:12px}
-
-/* ═══ PROGRESS AREA ═══ */
 #prog-wrap{display:none}
-
 .prog-box{background:var(--sur);border:1px solid var(--bdr);border-radius:var(--r);padding:18px;margin-bottom:14px}
-
-/* Global progress */
 .glob-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .glob-hdr h2{font-size:15px;font-weight:600}
 .glob-stat{font-size:13px;color:var(--mut)}
 .glob-bar{height:8px;background:var(--card);border-radius:999px;overflow:hidden;margin-bottom:6px}
 .glob-fill{height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2));border-radius:999px;transition:width .4s;width:0%}
 .glob-sub{font-size:12px;color:var(--mut);margin-bottom:18px}
-
-/* Server progress pills */
 .srv-pills{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
 .srv-pill{display:flex;align-items:center;gap:6px;background:var(--card);border:1px solid var(--bdr);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;min-width:130px}
 .srv-pill .p-name{flex:1}
@@ -173,19 +223,12 @@ header h1{font-size:18px;font-weight:700}header p{font-size:12px;color:var(--mut
 .d-ok{background:var(--grn)}
 .d-fail{background:var(--red)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.2}}
-
-/* Log */
 .log-title{font-size:12px;font-weight:700;color:var(--mut);margin-bottom:7px;text-transform:uppercase;letter-spacing:.5px}
 .log-box{background:var(--card);border:1px solid var(--bdr);border-radius:8px;padding:10px 12px;max-height:180px;overflow-y:auto;font-size:12px;font-family:'Courier New',monospace;line-height:1.7}
 .log-box:empty::before{content:'Menunggu upload dimulai…';color:var(--mut)}
 .log-line{display:flex;gap:8px;align-items:baseline}
 .log-time{color:var(--mut);flex-shrink:0;font-size:11px}
-.log-ok  {color:var(--grn)}
-.log-err {color:var(--red)}
-.log-run {color:var(--ylw)}
-.log-inf {color:var(--txt)}
-
-/* RESULT CARDS */
+.log-ok{color:var(--grn)}.log-err{color:var(--red)}.log-run{color:var(--ylw)}.log-inf{color:var(--txt)}
 .res-grid{display:flex;flex-direction:column;gap:12px}
 .res-card{background:var(--sur);border:1px solid var(--bdr);border-radius:var(--r);overflow:hidden}
 .res-hdr{padding:10px 14px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:9px}
@@ -193,8 +236,6 @@ header h1{font-size:18px;font-weight:700}header p{font-size:12px;color:var(--mut
 .res-hdr .fm{font-size:11px;color:var(--mut)}
 .copy-all-btn{background:var(--card);border:1px solid var(--bdr);color:var(--txt);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;white-space:nowrap;transition:.15s}
 .copy-all-btn:hover{border-color:var(--acc);color:var(--acc)}
-
-/* SERVER ROWS inside card */
 .srows{padding:3px 0}
 .srow{display:flex;align-items:center;gap:9px;padding:7px 14px;border-bottom:1px solid rgba(46,52,80,.4);min-height:38px}
 .srow:last-child{border-bottom:none}
@@ -208,8 +249,6 @@ header h1{font-size:18px;font-weight:700}header p{font-size:12px;color:var(--mut
 .cpbtn{background:var(--card);border:1px solid var(--bdr);color:var(--mut);border-radius:5px;padding:3px 10px;font-size:11px;cursor:pointer;transition:.15s}
 .cpbtn:hover{border-color:var(--acc);color:var(--acc)}
 .cpbtn.ok{border-color:var(--grn);color:var(--grn)}
-
-/* SUMMARY */
 .sum-box{background:var(--sur);border:1px solid var(--bdr);border-radius:var(--r);padding:16px;margin-bottom:14px}
 .sum-box h3{font-size:14px;font-weight:700;margin-bottom:12px}
 .sum-grid{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:13px}
@@ -218,8 +257,6 @@ header h1{font-size:18px;font-weight:700}header p{font-size:12px;color:var(--mut
 .scnt{font-size:12px;display:flex;gap:8px}
 .cok{color:var(--grn)}.cfail{color:var(--red)}
 .sum-acts{display:flex;gap:7px;flex-wrap:wrap}
-
-/* TOAST */
 #toast{position:fixed;bottom:20px;right:20px;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;opacity:0;transform:translateY(8px);transition:.2s;z-index:9999;pointer-events:none;color:#fff;background:var(--grn)}
 #toast.show{opacity:1;transform:translateY(0)}
 #toast.err{background:var(--red)}
@@ -240,13 +277,11 @@ header h1{font-size:18px;font-weight:700}header p{font-size:12px;color:var(--mut
 
 <div class="wrap">
 
-  <!-- TABS -->
   <div class="tabs">
     <button class="tab-btn active" id="tb-file" onclick="switchTab('file')">📁 Upload File</button>
     <button class="tab-btn" id="tb-url"  onclick="switchTab('url')">🔗 Upload via URL</button>
   </div>
 
-  <!-- FILE TAB -->
   <div id="tab-file">
     <div class="panel">
       <div class="ptitle">Pilih File Video</div>
@@ -267,7 +302,6 @@ header h1{font-size:18px;font-weight:700}header p{font-size:12px;color:var(--mut
     </div>
   </div>
 
-  <!-- URL TAB -->
   <div id="tab-url" style="display:none">
     <div class="panel">
       <div class="ptitle">Masukkan URL Video</div>
@@ -286,10 +320,7 @@ header h1{font-size:18px;font-weight:700}header p{font-size:12px;color:var(--mut
     </div>
   </div>
 
-  <!-- ═══ PROGRESS AREA ═══ -->
   <div id="prog-wrap">
-
-    <!-- Progress panel -->
     <div class="prog-box">
       <div class="glob-hdr">
         <h2>⏳ Progress Upload</h2>
@@ -297,19 +328,11 @@ header h1{font-size:18px;font-weight:700}header p{font-size:12px;color:var(--mut
       </div>
       <div class="glob-bar"><div class="glob-fill" id="glob-fill"></div></div>
       <div class="glob-sub" id="glob-sub">Menunggu…</div>
-
-      <!-- Per-server pills -->
       <div class="srv-pills" id="srv-pills"></div>
-
-      <!-- Log -->
       <div class="log-title">📋 Log Aktivitas</div>
       <div class="log-box" id="log-box"></div>
     </div>
-
-    <!-- Result cards -->
     <div class="res-grid" id="res-grid"></div>
-
-    <!-- Summary -->
     <div class="sum-box" id="sum-box" style="display:none">
       <h3>📊 Ringkasan</h3>
       <div class="sum-grid" id="sum-grid"></div>
@@ -321,14 +344,12 @@ header h1{font-size:18px;font-weight:700}header p{font-size:12px;color:var(--mut
         <button class="btn btn-sec btn-sm" onclick="copyByServer('zig')">Copy Zig.ht</button>
       </div>
     </div>
+  </div>
 
-  </div><!-- /prog-wrap -->
-
-</div><!-- /wrap -->
+</div>
 <div id="toast"></div>
 
 <script>
-// ═══ CONFIG ═══════════════════════════════════════════════════════════════════
 const SRVS = [
   {id:'ace',   label:'AceImg',     color:'#5b7cff'},
   {id:'sd',    label:'SliceDrive', color:'#7c3aed'},
@@ -336,9 +357,18 @@ const SRVS = [
   {id:'zig',   label:'Zig.ht',     color:'#d97706'},
 ];
 
+// ✅ FIX: Path API absolut, tidak bergantung window.location.pathname
+const API_PATHS = {
+  ace:   '/api/apiace.php',
+  sd:    '/api/apisd.php',
+  videy: '/api/apivid.php',
+  zig:   '/api/apizig.php',
+};
+// Endpoint AJAX tetap ke index.php ini sendiri
+const SELF_PATH = '/api/index.php';
+
 let fileItems = [], urlItems = [], results = {}, idCtr = 0, busy = false;
 
-// ═══ TABS ═════════════════════════════════════════════════════════════════════
 function switchTab(t) {
   document.getElementById('tab-file').style.display = t==='file' ? '' : 'none';
   document.getElementById('tab-url').style.display  = t==='url'  ? '' : 'none';
@@ -346,7 +376,6 @@ function switchTab(t) {
   document.getElementById('tb-url').classList.toggle('active',  t==='url');
 }
 
-// ═══ FILE ═════════════════════════════════════════════════════════════════════
 function onFileSel(e) { addFiles([...e.target.files]); e.target.value = ''; }
 function dzOver(e)  { e.preventDefault(); document.getElementById('dz').classList.add('over'); }
 function dzLeave(e) { document.getElementById('dz').classList.remove('over'); }
@@ -365,7 +394,6 @@ function addFiles(files) {
 }
 function removeFile(id) { fileItems = fileItems.filter(x => x.id!==id); renderList('file'); }
 
-// ═══ URL ══════════════════════════════════════════════════════════════════════
 function addUrls() {
   const ta = document.getElementById('url-ta');
   ta.value.split('\n').map(s=>s.trim()).filter(s=>s.length>7).forEach(url => {
@@ -377,18 +405,15 @@ function addUrls() {
 function addAndUpload() { addUrls(); if (urlItems.length>0) startUpload('url'); }
 function removeUrl(id) { urlItems = urlItems.filter(x => x.id!==id); renderList('url'); }
 
-// ═══ RENDER LIST ══════════════════════════════════════════════════════════════
 function renderList(mode) {
   const isF  = mode==='file';
   const arr  = isF ? fileItems : urlItems;
   const list = document.getElementById(isF ? 'file-list' : 'url-list');
   const acts = document.getElementById(isF ? 'file-acts' : 'url-acts');
   const bcnt = document.getElementById(isF ? 'file-bcnt' : 'url-bcnt');
-
   if (!arr.length) { list.innerHTML=''; acts.style.display='none'; return; }
   acts.style.display = '';
   bcnt.textContent = arr.length+' item × 4 server = '+(arr.length*4)+' upload';
-
   list.innerHTML = arr.map(it => {
     const name = isF ? it.file.name : it.url;
     const meta = isF ? fmtSz(it.file.size) : 'URL Video';
@@ -409,9 +434,7 @@ function clearItems(mode) {
   else               { urlItems=[]; renderList('url'); }
 }
 
-// ═══ SERVER PILLS ════════════════════════════════════════════════════════════
-let pillStats = {}; // {srvId: {done,ok,fail,total}}
-
+let pillStats = {};
 function initPills(total) {
   pillStats = {};
   SRVS.forEach(s => { pillStats[s.id] = {done:0, ok:0, fail:0, total}; });
@@ -426,7 +449,7 @@ function initPills(total) {
 }
 
 function updatePill(srvId) {
-  const ps = pillStats[srvId];
+  const ps  = pillStats[srvId];
   const dot = document.getElementById('pdot-'+srvId);
   const st  = document.getElementById('pst-'+srvId);
   const cnt = document.getElementById('pcnt-'+srvId);
@@ -443,7 +466,6 @@ function updatePill(srvId) {
   }
 }
 
-// ═══ LOG ══════════════════════════════════════════════════════════════════════
 function addLog(msg, type='inf') {
   const box = document.getElementById('log-box');
   const now = new Date();
@@ -455,7 +477,6 @@ function addLog(msg, type='inf') {
   box.scrollTop = box.scrollHeight;
 }
 
-// ═══ UPLOAD ══════════════════════════════════════════════════════════════════
 async function startUpload(mode) {
   if (busy) { toast('Upload sedang berjalan…', true); return; }
   const items = mode==='file' ? fileItems : urlItems;
@@ -466,7 +487,6 @@ async function startUpload(mode) {
   document.getElementById('btn-fu').disabled = true;
   document.getElementById('btn-uu').disabled = true;
 
-  // Show progress area
   const pw = document.getElementById('prog-wrap');
   pw.style.display = 'block';
   document.getElementById('sum-box').style.display = 'none';
@@ -475,50 +495,34 @@ async function startUpload(mode) {
 
   const total = items.length;
   initPills(total);
-
   addLog(`Mulai upload: ${total} item × 4 server = ${total*4} proses`, 'inf');
 
-  // Build skeleton cards
-  items.forEach((it, idx) => {
+  items.forEach((it) => {
     results[it.id] = {};
     SRVS.forEach(s => { results[it.id][s.id] = {status:'waiting'}; });
     buildCard(it, mode);
   });
 
-  // Scroll to progress
   pw.scrollIntoView({behavior:'smooth', block:'start'});
 
-  let totalTasks  = total * SRVS.length;
-  let doneTasks   = 0;
-  let okTasks     = 0;
-  let failTasks   = 0;
-
+  let totalTasks = total * SRVS.length;
+  let doneTasks  = 0, okTasks = 0, failTasks = 0;
   setGlob(0, totalTasks, okTasks, failTasks);
 
-  // Launch all concurrently
   const tasks = SRVS.flatMap(srv =>
     items.map((it, idx) =>
       doUpload(mode, it, srv, idx).then(r => {
         results[it.id][srv.id] = r;
         updateRow(it.id, srv.id, r);
-
         doneTasks++;
         if (r.success) okTasks++; else failTasks++;
-
-        // update pill
         pillStats[srv.id].done++;
         if (r.success) pillStats[srv.id].ok++; else pillStats[srv.id].fail++;
         updatePill(srv.id);
-
         setGlob(doneTasks, totalTasks, okTasks, failTasks);
-
         const fname = mode==='file' ? it.file.name : shorten(it.url,40);
-        if (r.success) {
-          addLog(`✓ [${srv.label}] ${fname} → ${r.primary||'URL tidak diketahui'}`, 'ok');
-        } else {
-          addLog(`✕ [${srv.label}] ${fname} — ${r.error||'Gagal'}`, 'err');
-        }
-
+        if (r.success) addLog(`✓ [${srv.label}] ${fname} → ${r.primary||'URL tidak diketahui'}`, 'ok');
+        else           addLog(`✕ [${srv.label}] ${fname} — ${r.error||'Gagal'}`, 'err');
         if (doneTasks === totalTasks) finalize(items);
       })
     )
@@ -536,22 +540,20 @@ async function doUpload(mode, item, srv, idx) {
   updateRow(item.id, srv.id, {status:'loading'});
   try {
     const fd = new FormData();
+    // ✅ FIX: pakai SELF_PATH bukan window.location.pathname
     const qs = new URLSearchParams({ajax:'1', server:srv.id, mode, index:idx});
     if (mode==='file') fd.append('file', item.file, item.file.name);
     else               fd.append('url', item.url);
 
-    const res = await fetch(window.location.pathname+'?'+qs, {method:'POST', body:fd});
+    const res = await fetch(SELF_PATH + '?' + qs, {method:'POST', body:fd});
     if (!res.ok) throw new Error('HTTP '+res.status+' dari server');
     const json = await res.json();
-    // attach raw for debug
-    json._raw_ok = true;
     return json;
   } catch(e) {
     return {success:false, server:srv.id, index:idx, error:e.message};
   }
 }
 
-// ═══ GLOBAL PROGRESS ═════════════════════════════════════════════════════════
 function setGlob(done, total, ok, fail) {
   const pct = total ? Math.round(done/total*100) : 0;
   document.getElementById('glob-fill').style.width = pct+'%';
@@ -562,7 +564,6 @@ function setGlob(done, total, ok, fail) {
       : `${done} selesai dari ${total} — ✓ ${ok} sukses  ✕ ${fail} gagal`;
 }
 
-// ═══ RESULT CARD ═════════════════════════════════════════════════════════════
 function buildCard(item, mode) {
   const grid = document.getElementById('res-grid');
   const name = mode==='file' ? item.file.name : item.url;
@@ -589,10 +590,8 @@ function rowHTML(itemId, srv, st) {
   const dc  = st.status==='waiting'?'d-idle': st.status==='loading'?'d-run': st.success?'d-ok':'d-fail';
   const sc  = st.status==='waiting'?'s-wait': st.status==='loading'?'s-run': st.success?'s-ok':'s-fail';
   const stx = st.status==='waiting'?'Menunggu': st.status==='loading'?'Uploading…': st.success?'✓ Sukses':'✕ Gagal';
-
   let urlPart = `<span style="color:var(--mut);font-size:11px">—</span>`;
   let actPart = '';
-
   if (st.success && st.primary) {
     const opts = Object.entries(st.urls||{}).filter(([,v])=>v)
       .map(([k,v])=>`<option value="${esc(v)}">${k}: ${esc(shorten(v,38))}</option>`).join('');
@@ -604,7 +603,6 @@ function rowHTML(itemId, srv, st) {
   } else if (!st.success && st.status!=='waiting' && st.status!=='loading') {
     urlPart = `<span style="color:var(--red);font-size:11px" title="${esc(st.error||'')}">⚠ ${esc(trunc(st.error||'Error',52))}</span>`;
   }
-
   return `<div class="srow" id="row-${itemId}-${srv.id}">
     <div class="sn" style="color:${srv.color}">
       <span class="dot ${dc}" id="rdot-${itemId}-${srv.id}"></span>${srv.label}
@@ -621,7 +619,6 @@ function updateRow(itemId, srvId, st) {
   if (row && srv) row.outerHTML = rowHTML(itemId, srv, st);
 }
 
-// ═══ COPY ════════════════════════════════════════════════════════════════════
 function cpSel(itemId, srvId) {
   const sel = document.getElementById('sel-'+itemId+'-'+srvId);
   if (!sel) return;
@@ -656,7 +653,6 @@ function cpText(text) {
   else { const t=document.createElement('textarea'); t.value=text; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t); }
 }
 
-// ═══ FINALIZE ════════════════════════════════════════════════════════════════
 function finalize(items) {
   const sb = document.getElementById('sum-box');
   sb.style.display = '';
@@ -673,7 +669,6 @@ function finalize(items) {
   sb.scrollIntoView({behavior:'smooth', block:'start'});
 }
 
-// ═══ UTILS ═══════════════════════════════════════════════════════════════════
 function toast(msg, isErr=false) {
   const t=document.getElementById('toast');
   t.textContent=msg; t.className='show'+(isErr?' err':'');
