@@ -1,35 +1,73 @@
 {
-  "version": 2,
-  "builds": [
+  "functions": {
+    "api/index.php": {
+      "runtime": "vercel-php@0.7.3"
+    },
+    "api/apiace.php": {
+      "runtime": "vercel-php@0.7.3"
+    },
+    "api/apisd.php": {
+      "runtime": "vercel-php@0.7.3"
+    },
+    "api/apivid.php": {
+      "runtime": "vercel-php@0.7.3"
+    },
+    "api/apizig.php": {
+      "runtime": "vercel-php@0.7.3"
+    }
+  },
+  "headers": [
     {
-      "src": "api/*.php",
-      "use": "@vercel/php"
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/json; charset=utf-8"
+        },
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET, POST, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type, Authorization"
+        }
+      ]
+    },
+    {
+      "source": "/",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "text/html; charset=utf-8"
+        }
+      ]
     }
   ],
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/ace/(.*)",
-      "dest": "/api/apiace.php"
+      "source": "/api/ace",
+      "destination": "/api/apiace.php"
     },
     {
-      "src": "/api/sd/(.*)",
-      "dest": "/api/apisd.php"
+      "source": "/api/sd",
+      "destination": "/api/apisd.php"
     },
     {
-      "src": "/api/vid/(.*)",
-      "dest": "/api/apivid.php"
+      "source": "/api/vid",
+      "destination": "/api/apivid.php"
     },
     {
-      "src": "/api/zig/(.*)",
-      "dest": "/api/apizig.php"
+      "source": "/api/zig",
+      "destination": "/api/apizig.php"
     },
     {
-      "src": "/api/(.*)",
-      "dest": "/api/index.php"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/api/index.php"
+      "source": "/",
+      "destination": "/api/index.php"
     }
   ]
 }
