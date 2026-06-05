@@ -1,0 +1,35 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/*.php",
+      "use": "@vercel/php"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/ace/(.*)",
+      "dest": "/api/apiace.php"
+    },
+    {
+      "src": "/api/sd/(.*)",
+      "dest": "/api/apisd.php"
+    },
+    {
+      "src": "/api/vid/(.*)",
+      "dest": "/api/apivid.php"
+    },
+    {
+      "src": "/api/zig/(.*)",
+      "dest": "/api/apizig.php"
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.php"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/api/index.php"
+    }
+  ]
+}
